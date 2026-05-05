@@ -4,61 +4,65 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 )
 
-// Config holds the parsed CLI configuration for an envdiff run.
+// Status represents the comparison state of a key across environments.
+type Status string
+
+const (
+	StatusMatch    Status = "match"
+	StatusMismatch Status = "mismatch"
+	StatusMissing  Status = "missing"
+)
+
+// Result holds the comparison outcome for a single key.
+type Result struct {
+	Key    string
+	Status Status
+	Values map[string]string // env name -> value (empty string if missing)
+}
+
+// Config holds all runtime configuration for envdiff.
 type Config struct {
-	// Envs maps environment name -> file path, e.g. {"prod": ".env.prod"}
-	Envs map[string]string
-	// Format is the output format: "text", "csv", or "json".
-	Format string
-	// ShowMatches controls whether matching keys are printed.
+	Envs        []EnvFile
 	ShowMatches bool
-	// IgnoreKeys is a set of key names to exclude from comparison.
-	IgnoreKeys map[string]struct{}
+	Format      string
+	IgnoreKeys  []string
+	SortOrder   string
+}
+
+// EnvFile pairs an environment name with its file path.
+type EnvFile struct {
+	Name string
+	Path string
+}
+
+var validFormats = map[string]bool{
+	"text": true,
+	"csv":  true,
+	"json": true,
 }
 
 // DefaultConfig returns a Config with sensible defaults.
-func DefaultConfig() *Config {
-	return &Config{
-		Envs:        make(map[string]string),
-		Format:      "text",
-		ShowMatches: false,
-		IgnoreKeys:  make(map[string]struct{}),
+func DefaultConfig() Config {
+	return Config{
+		Format:    "text",
+		SortOrder: "key",
 	}
 }
 
-// Validate checks that the config is usable and returns a descriptive error
-// if anything is missing or invalid.
+// Validate checks that the Config is valid before use.
 func (c *Config) Validate() error {
 	if len(c.Envs) < 2 {
-		return errors.New("at least two environments must be specified")
+		return errors.New("at least two environments are required")
 	}
-
-	validFormats := map[string]bool{"text": true, "csv": true, "json": true}
 	if !validFormats[c.Format] {
 		return fmt.Errorf("unknown format %q: must be one of text, csv, json", c.Format)
 	}
-
-	for name, path := range c.Envs {
-		if strings.TrimSpace(name) == "" {
-			return errors.New("environment name must not be empty")
-		}
-		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("file for environment %q not found: %s", name, path)
+	for _, env := range c.Envs {
+		if _, err := os.Stat(env.Path); os.IsNotExist(err) {
+			return fmt.Errorf("file not found for env %q: %s", env.Name, env.Path)
 		}
 	}
 	return nil
-}
-
-// AddIgnoreKeys parses a comma-separated list of key names and adds them to
-// the IgnoreKeys set.
-func (c *Config) AddIgnoreKeys(raw string) {
-	for _, k := range strings.Split(raw, ",") {
-		k = strings.TrimSpace(k)
-		if k != "" {
-			c.IgnoreKeys[k] = struct{}{}
-		}
-	}
 }
