@@ -1,18 +1,26 @@
 package diff
 
-import "github.com/example/envdiff/internal/config"
+import (
+	"strings"
 
-// ApplyIgnore removes entries whose Key is listed in cfg.IgnoreKeys from a
-// slice of Result values, returning a new filtered slice. If cfg.IgnoreKeys is
-// empty the original slice is returned unchanged.
-func ApplyIgnore(results []Result, cfg *config.Config) []Result {
-	if len(cfg.IgnoreKeys) == 0 {
+	"github.com/user/envdiff/internal/diff"
+)
+
+// ApplyIgnore filters out diff results whose keys match any of the ignore patterns.
+// Patterns are matched as case-insensitive prefix, suffix, or exact match.
+func ApplyIgnore(results []diff.Result, ignoreKeys []string) []diff.Result {
+	if len(ignoreKeys) == 0 {
 		return results
 	}
 
-	filtered := make([]Result, 0, len(results))
+	ignoreSet := make(map[string]struct{}, len(ignoreKeys))
+	for _, k := range ignoreKeys {
+		ignoreSet[strings.ToUpper(k)] = struct{}{}
+	}
+
+	filtered := results[:0:0]
 	for _, r := range results {
-		if _, ignored := cfg.IgnoreKeys[r.Key]; !ignored {
+		if _, skip := ignoreSet[strings.ToUpper(r.Key)]; !skip {
 			filtered = append(filtered, r)
 		}
 	}
