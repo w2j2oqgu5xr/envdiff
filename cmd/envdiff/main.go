@@ -74,6 +74,9 @@ func main() {
 	}
 }
 
+// splitNamePath parses a "name=path" argument into its name and file path
+// components. Returns an error if the argument is not in the expected format
+// or if either component is empty.
 func splitNamePath(arg string) (string, string, error) {
 	parts := strings.SplitN(arg, "=", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
