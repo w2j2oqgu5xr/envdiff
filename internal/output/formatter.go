@@ -1,90 +1,94 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/user/envdiff/internal/diff"
 )
 
-// Format controls how the output is rendered.
-type Format string
-
-const (
-	FormatText Format = "text"
-	FormatCSV  Format = "csv"
-	FormatJSON Format = "json"
-)
-
-// FormatResults serializes diff results into the requested format.
-func FormatResults(results []diff.Result, format Format) (string, error) {
-	switch format {
-	case FormatCSV:
-		return formatCSV(results), nil
-	case FormatJSON:
-		return formatJSON(results), nil
-	case FormatText, "":
+// FormatResults serializes results into the requested format string.
+// Supported formats: "text", "csv", "json", "table".
+func FormatResults(results []diff.Result, format string) (string, error) {
+	switch strings.ToLower(format) {
+	case "text", "":
 		return formatText(results), nil
+	case "csv":
+		return formatCSV(results), nil
+	case "json":
+		return formatJSON(results)
+	case "table":
+		var sb strings.Builder
+		NewTableWriter(&sb).Write(results)
+		return sb.String(), nil
 	default:
-		return "", fmt.Errorf("unknown format %q: expected text, csv, or json", format)
+		return "", fmt.Errorf("unknown format %q: must be text, csv, json, or table", format)
 	}
 }
 
 func formatText(results []diff.Result) string {
 	if len(results) == 0 {
-		return "No differences found.\n"
+		return ""
 	}
+	envNames := collectEnvNames(results)
 	var sb strings.Builder
 	for _, r := range results {
-		status := strings.ToUpper(string(r.Status))
-		sb.WriteString(fmt.Sprintf("[%s] %s\n", status, r.Key))
-		for env, val := range r.Values {
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", env, val))
+		sb.WriteString(fmt.Sprintf("[%s] %s", r.Status, r.Key))
+		for _, e := range envNames {
+			v := r.Values[e]
+			if v == "" {
+				v = "<missing>"
+			}
+			sb.WriteString(fmt.Sprintf(" %s=%s", e, v))
 		}
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }
 
 func formatCSV(results []diff.Result) string {
+	if len(results) == 0 {
+		return ""
+	}
+	envNames := collectEnvNames(results)
 	var sb strings.Builder
-	sb.WriteString("key,status,env,value\n")
-	for _, r := range results {
-		for env, val := range r.Values {
-			sb.WriteString(fmt.Sprintf("%s,%s,%s,%s\n",
-				csvEscape(r.Key),
-				string(r.Status),
-				csvEscape(env),
-				csvEscape(val),
-			))
+	header := append([]string{"key", "status"}, envNames...)
+	for i, h := range header {
+		if i > 0 {
+			sb.WriteString(",")
 		}
+		sb.WriteString(csvEscape(h))
+	}
+	sb.WriteString("\n")
+	for _, r := range results {
+		sb.WriteString(csvEscape(r.Key))
+		sb.WriteString(",")
+		sb.WriteString(csvEscape(string(r.Status)))
+		for _, e := range envNames {
+			sb.WriteString(",")
+			sb.WriteString(csvEscape(r.Values[e]))
+		}
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }
 
-func formatJSON(results []diff.Result) string {
-	if len(results) == 0 {
-		return "[]\n"
+func formatJSON(results []diff.Result) (string, error) {
+	type row struct {
+		Key    string            `json:"key"`
+		Status string            `json:"status"`
+		Values map[string]string `json:"values"`
 	}
-	var sb strings.Builder
-	sb.WriteString("[\n")
+	rows := make([]row, len(results))
 	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("  {\"key\":%q,\"status\":%q,\"values\":{", r.Key, r.Status))
-		j := 0
-		for env, val := range r.Values {
-			if j > 0 {
-				sb.WriteString(",")
-			}
-			sb.WriteString(fmt.Sprintf("%q:%q", env, val))
-			j++
-		}
-		sb.WriteString("}}") 
-		if i < len(results)-1 {
-			sb.WriteString(",")
-		}
-		sb.WriteString("\n")
+		rows[i] = row{Key: r.Key, Status: string(r.Status), Values: r.Values}
 	}
-	sb.WriteString("]\n")
-	return sb.String()
+	b, err := json.MarshalIndent(rows, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b) + "\n", nil
 }
 
 func csvEscape(s string) string {

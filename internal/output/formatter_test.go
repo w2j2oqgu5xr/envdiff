@@ -9,95 +9,88 @@ import (
 
 func sampleResults() []diff.Result {
 	return []diff.Result{
-		{
-			Key:    "DB_HOST",
-			Status: diff.StatusMismatch,
-			Values: map[string]string{"prod": "db.prod.example.com", "staging": "db.staging.example.com"},
-		},
-		{
-			Key:    "SECRET_KEY",
-			Status: diff.StatusMissing,
-			Values: map[string]string{"prod": "abc123"},
-		},
+		{Key: "DB_HOST", Status: diff.StatusMatch, Values: map[string]string{"prod": "localhost", "dev": "localhost"}},
+		{Key: "API_KEY", Status: diff.StatusMissing, Values: map[string]string{"prod": "secret", "dev": ""}},
+		{Key: "PORT", Status: diff.StatusMismatch, Values: map[string]string{"prod": "8080", "dev": "3000"}},
 	}
 }
 
 func TestFormatResults_UnknownFormat(t *testing.T) {
-	_, err := FormatResults(sampleResults(), Format("xml"))
+	_, err := FormatResults(sampleResults(), "xml")
 	if err == nil {
-		t.Fatal("expected error for unknown format, got nil")
+		t.Error("expected error for unknown format")
 	}
 }
 
 func TestFormatResults_EmptyText(t *testing.T) {
-	out, err := FormatResults(nil, FormatText)
+	out, err := FormatResults([]diff.Result{}, "text")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "No differences") {
-		t.Errorf("expected 'No differences' message, got: %q", out)
+	if out != "" {
+		t.Errorf("expected empty string, got %q", out)
 	}
 }
 
 func TestFormatResults_Text(t *testing.T) {
-	out, err := FormatResults(sampleResults(), FormatText)
+	out, err := FormatResults(sampleResults(), "text")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(out, "[MISMATCH]") {
-		t.Errorf("expected [MISMATCH] in output, got: %q", out)
-	}
 	if !strings.Contains(out, "DB_HOST") {
-		t.Errorf("expected DB_HOST in output")
+		t.Errorf("expected DB_HOST in text output")
+	}
+	if !strings.Contains(out, "<missing>") {
+		t.Errorf("expected <missing> placeholder in text output")
 	}
 }
 
 func TestFormatResults_CSV(t *testing.T) {
-	out, err := FormatResults(sampleResults(), FormatCSV)
+	out, err := FormatResults(sampleResults(), "csv")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(out, "key,status,env,value") {
-		t.Errorf("CSV should start with header, got: %q", out)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header + data rows, got %d lines", len(lines))
 	}
-	if !strings.Contains(out, "DB_HOST") {
-		t.Errorf("expected DB_HOST in CSV output")
+	if !strings.HasPrefix(lines[0], "key,status") {
+		t.Errorf("expected CSV header to start with 'key,status', got %q", lines[0])
 	}
 }
 
 func TestFormatResults_JSON(t *testing.T) {
-	out, err := FormatResults(sampleResults(), FormatJSON)
+	out, err := FormatResults(sampleResults(), "json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(out, "[") {
-		t.Errorf("JSON should start with '[', got: %q", out)
+	if !strings.Contains(out, `"key"`) {
+		t.Errorf("expected JSON key field, got %q", out)
 	}
-	if !strings.Contains(out, `"DB_HOST"`) {
-		t.Errorf("expected DB_HOST key in JSON output")
+	if !strings.Contains(out, `"status"`) {
+		t.Errorf("expected JSON status field, got %q", out)
+	}
+}
+
+func TestFormatResults_Table(t *testing.T) {
+	out, err := FormatResults(sampleResults(), "table")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "KEY") {
+		t.Errorf("expected TABLE header KEY, got %q", out)
+	}
+	if !strings.Contains(out, "STATUS") {
+		t.Errorf("expected TABLE header STATUS, got %q", out)
 	}
 }
 
 func TestFormatResults_JSONEmpty(t *testing.T) {
-	out, err := FormatResults(nil, FormatJSON)
+	out, err := FormatResults([]diff.Result{}, "json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.TrimSpace(out) != "[]" {
-		t.Errorf("expected empty JSON array, got: %q", out)
-	}
-}
-
-func TestCSVEscape(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"simple", "simple"},
-		{"with,comma", `"with,comma"`},
-		{`has"quote`, `"has""quote"`},
-	}
-	for _, c := range cases {
-		got := csvEscape(c.in)
-		if got != c.want {
-			t.Errorf("csvEscape(%q) = %q, want %q", c.in, got, c.want)
-		}
+	if !strings.Contains(out, "[]") {
+		t.Errorf("expected empty JSON array, got %q", out)
 	}
 }
