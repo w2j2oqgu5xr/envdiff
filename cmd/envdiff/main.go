@@ -6,68 +6,78 @@ import (
 	"os"
 	"strings"
 
+	"github.com/user/envdiff/internal/config"
 	"github.com/user/envdiff/internal/diff"
 	"github.com/user/envdiff/internal/output"
 	"github.com/user/envdiff/internal/parser"
 )
 
 func main() {
-	showMatches := flag.Bool("show-matches", false, "also display keys that match across all environments")
-	format := flag.String("format", "text", "output format: text, csv, json")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: envdiff [flags] name1=file1 name2=file2 ...\n\nFlags:\n")
-		flag.PrintDefaults()
-	}
+	cfg := config.DefaultConfig()
+
+	flag.StringVar(&cfg.Format, "format", cfg.Format, "output format: text, csv, json")
+	flag.BoolVar(&cfg.ShowMatches, "show-matches", cfg.ShowMatches, "include matching keys in output")
+	flag.BoolVar(&cfg.ShowSummary, "summary", cfg.ShowSummary, "print a summary after the diff")
+	var ignoreRaw string
+	flag.StringVar(&ignoreRaw, "ignore", "", "comma-separated list of keys to ignore")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < 2 {
-		flag.Usage()
+		fmt.Fprintln(os.Stderr, "usage: envdiff [flags] name1=file1 name2=file2 ...")
 		os.Exit(1)
 	}
 
-	envs := make(map[string]map[string]string, len(args))
+	if ignoreRaw != "" {
+		for _, k := range strings.Split(ignoreRaw, ",") {
+			cfg.IgnoreKeys = append(cfg.IgnoreKeys, strings.TrimSpace(k))
+		}
+	}
+
 	for _, arg := range args {
 		name, path, err := splitNamePath(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "invalid argument %q: %v\n", arg, err)
 			os.Exit(1)
 		}
-		parsed, err := parser.ParseFile(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading %s: %v\n", path, err)
-			os.Exit(1)
-		}
-		envs[name] = parsed
+		cfg.Envs = append(cfg.Envs, config.EnvEntry{Name: name, Path: path})
 	}
 
-	results := diff.Compare(envs)
-
-	if output.Format(*format) == output.FormatText {
-		p := output.NewPrinter(os.Stdout, *showMatches)
-		p.Print(results)
-		return
-	}
-
-	var filtered []diff.Result
-	for _, r := range results {
-		if *showMatches || r.Status != diff.StatusMatch {
-			filtered = append(filtered, r)
-		}
-	}
-
-	out, err := output.FormatResults(filtered, output.Format(*format))
-	if err != nil {
+	if err := cfg.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Print(out)
+
+	envMaps := make(map[string]map[string]string, len(cfg.Envs))
+	for _, e := range cfg.Envs {
+		m, err := parser.ParseFile(e.Path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error reading %s: %v\n", e.Path, err)
+			os.Exit(1)
+		}
+		envMaps[e.Name] = m
+	}
+
+	results := diff.Compare(envMaps)
+	results = diff.ApplyIgnore(results, cfg.IgnoreKeys)
+
+	formatted, err := output.FormatResults(results, cfg.Format, cfg.ShowMatches)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "format error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(formatted)
+
+	if cfg.ShowSummary {
+		summary := output.BuildSummary(results)
+		output.PrintSummary(os.Stdout, summary)
+	}
 }
 
 func splitNamePath(arg string) (string, string, error) {
 	parts := strings.SplitN(arg, "=", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("invalid argument %q: expected name=path", arg)
+		return "", "", fmt.Errorf("expected format name=path")
 	}
 	return parts[0], parts[1], nil
 }
