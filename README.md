@@ -49,6 +49,7 @@ envdiff .env.example .env.production
 | `--no-color` | Disable colorized output |
 | `--keys-only` | Show only key names, omit values |
 | `--missing` | Report only missing keys |
+| `--exit-code` | Exit with a non-zero status code if any differences are found |
 
 ---
 
