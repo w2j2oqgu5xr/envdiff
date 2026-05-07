@@ -8,10 +8,6 @@ import (
 )
 
 func TestTableWriter_EmptyResults(t *testing.T) {
-	out := captureStdout(func() {
-		w := NewTableWriter(nil)
-		_ = w
-	})
 	// Use a strings.Builder directly instead.
 	var sb strings.Builder
 	w := NewTableWriter(&sb)
@@ -70,5 +66,21 @@ func TestTableWriter_EnvColumnsPresent(t *testing.T) {
 	}
 	if !strings.Contains(out, "beta") {
 		t.Errorf("expected env name 'beta' in header, got: %q", out)
+	}
+}
+
+func TestTableWriter_MismatchShowsValues(t *testing.T) {
+	results := []diff.Result{
+		{Key: "PORT", Status: diff.StatusMismatch, Values: map[string]string{"prod": "8080", "dev": "3000"}},
+	}
+	var sb strings.Builder
+	w := NewTableWriter(&sb)
+	w.Write(results)
+	out := sb.String()
+	if !strings.Contains(out, "8080") {
+		t.Errorf("expected value '8080' in output, got: %q", out)
+	}
+	if !strings.Contains(out, "3000") {
+		t.Errorf("expected value '3000' in output, got: %q", out)
 	}
 }
