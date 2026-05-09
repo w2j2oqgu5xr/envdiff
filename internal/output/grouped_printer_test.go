@@ -69,6 +69,18 @@ func TestGroupedPrinter_SummaryLine(t *testing.T) {
 	}
 }
 
+// TestGroupedPrinter_SummaryCountsAllStatuses verifies that the summary line
+// correctly reflects the individual counts for each status category.
+func TestGroupedPrinter_SummaryCountsAllStatuses(t *testing.T) {
+	out := captureGrouped(makeGroupedResults(), false)
+	expected := []string{"match=1", "mismatch=1", "missing=1"}
+	for _, want := range expected {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in summary, got: %q", want, out)
+		}
+	}
+}
+
 func captureGrouped(results []diff.CompareResult, showMatches bool) string {
 	var sb strings.Builder
 	p := NewGroupedPrinter(&sb, showMatches)
